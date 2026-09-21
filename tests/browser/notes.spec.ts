@@ -1,0 +1,75 @@
+import { expect, test } from '@playwright/test';
+
+test('write, persist, search, star, export and delete a note offline', async ({ page, context }) => {
+  const errors: string[] = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'A little room for everything on your mind.' })).toBeVisible();
+  await page.screenshot({ path: 'test-results/home-desktop.png', fullPage: true });
+  await page.getByRole('button', { name: 'New note', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Note title' }).fill('A walk in the garden');
+  await page.getByRole('textbox', { name: 'Note transcript' }).fill('Remember to take a quiet walk tomorrow.\nकल बगीचे में टहलने जाना है।');
+  await expect(page.getByText('Saved on this device', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Star note', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Unstar note', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'All notes', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Search notes' }).fill('quiet');
+  await expect(page.getByRole('heading', { name: 'A walk in the garden' })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Search notes' }).fill('not-a-match');
+  await expect(page.getByText('No matching thoughts')).toBeVisible();
+  await page.getByRole('button', { name: 'Clear search' }).click();
+  await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+  await context.setOffline(true);
+  await page.reload();
+  await page.getByRole('heading', { name: 'A walk in the garden' }).click();
+  await expect(page.getByRole('textbox', { name: 'Note transcript' })).toHaveValue(/quiet walk/);
+  await page.getByRole('textbox', { name: 'Note transcript' }).fill('An offline edit. यह निजी है।');
+  await expect(page.getByText('Saved on this device', { exact: true })).toBeVisible();
+  await page.screenshot({ path: 'test-results/editor-desktop.png', fullPage: true });
+  await page.getByRole('button', { name: 'Note actions' }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download text' }).click();
+  expect((await download).suggestedFilename()).toBe('A walk in the garden.txt');
+  await page.getByRole('button', { name: 'Note actions' }).click();
+  await page.getByRole('button', { name: 'Delete note', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Keep note' }).click();
+  await expect(page.getByRole('textbox', { name: 'Note title' })).toHaveValue('A walk in the garden');
+  await page.getByRole('button', { name: 'Note actions' }).click();
+  await page.getByRole('button', { name: 'Delete note', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete note', exact: true }).click();
+  await expect(page.getByText('Every great idea starts somewhere.')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('small screens remain scrollable and notes remain reachable', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Write a note instead' }).click();
+  await page.getByRole('textbox', { name: 'Note title' }).fill('छोटी सी बात');
+  await page.getByRole('textbox', { name: 'Note transcript' }).fill('आज का दिन अच्छा है।\n'.repeat(30));
+  await expect(page.getByText('Saved on this device', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const text = page.getByRole('textbox', { name: 'Note transcript' });
+  expect(await text.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  await text.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  expect(await text.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+  await page.screenshot({ path: 'test-results/editor-mobile.png', fullPage: true });
+  await page.getByRole('button', { name: 'All notes', exact: true }).click();
+  await page.screenshot({ path: 'test-results/home-mobile.png', fullPage: true });
+  await page.getByRole('button', { name: 'Open sidebar' }).click();
+  await expect(page.getByRole('navigation').getByRole('button', { name: 'Starred' })).toBeVisible();
+  await page.getByRole('navigation').getByRole('button', { name: 'Starred' }).click();
+  await expect(page.getByText('Keep the good ones close.')).toBeVisible();
+});
+
+test('offline setup fails clearly and can be retried without losing notes', async ({ page }) => {
+  await page.route('https://huggingface.co/**', (route) => route.abort());
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Start recording' }).click();
+  await page.getByRole('button', { name: 'Set up offline transcription' }).click();
+  await expect(page.getByRole('button', { name: 'Retry offline setup' })).toBeVisible({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Close dialog' }).click();
+  await page.getByRole('button', { name: 'Write a note instead' }).click();
+  await page.getByRole('textbox', { name: 'Note transcript' }).fill('Writing still works.');
+  await expect(page.getByText('Saved on this device', { exact: true })).toBeVisible();
+});
