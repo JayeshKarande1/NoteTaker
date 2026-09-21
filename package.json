@@ -6,6 +6,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run tests/core.test.ts",
     "test:e2e": "playwright test",
+    "deploy": "node scripts/deploy.mjs",
     "postinstall": "node scripts/copy-runtime.mjs"
   },
   "dependencies": {
